@@ -1,0 +1,105 @@
+package controldata
+
+import (
+	"encoding/json"
+	"errors"
+	"io"
+	"strings"
+	"time"
+
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/service/dynamodb"
+	Validation "github.com/go-ozzo/ozzo-validation/v4"
+	"riscvue.com/pkg/entities"
+	"riscvue.com/pkg/entities/controldata"
+)
+
+type Rules struct{}
+
+func NewRules() *Rules {
+	return &Rules{}
+}
+
+func (r *Rules) Migrate(connection *dynamodb.DynamoDB) error {
+	return r.createTable(connection)
+}
+
+func (r *Rules) createTable(connection *dynamodb.DynamoDB) error {
+	table := &controldata.ControlData{}
+
+	input := &dynamodb.CreateTableInput{
+		AttributeDefinitions: []*dynamodb.AttributeDefinition{
+			{
+				AttributeName: aws.String("ControlDataId"),
+				AttributeType: aws.String("S"),
+			},
+		},
+		KeySchema: []*dynamodb.KeySchemaElement{
+			{
+				AttributeName: aws.String("ControlDataId"),
+				KeyType:       aws.String("HASH"),
+			},
+		},
+		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
+			ReadCapacityUnits:  aws.Int64(10),
+			WriteCapacityUnits: aws.Int64(10),
+		},
+		TableName: aws.String(table.TableName()),
+	}
+	response, err := connection.CreateTable(input)
+	if err != nil && strings.Contains(err.Error(), "Table already exists") {
+		return nil
+	}
+	if response != nil && strings.Contains(response.GoString(), "TableStatus: \"CREATING\"") {
+		time.Sleep(3 * time.Second)
+		err = r.createTable(connection)
+		if err != nil {
+			return err
+		}
+	}
+	return err
+}
+
+func (r *Rules) GetMock() interface{} {
+	return controldata.ControlData{
+		Base: entities.Base{
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+	}
+}
+
+func (r *Rules) Validate(model interface{}) error {
+
+	controldataFWModel, err := controldata.InterfaceToModelReq(model)
+	if err != nil {
+		return err
+	}
+	return Validation.ValidateStruct(controldataFWModel,
+		Validation.Field(&controldataFWModel.ControlDataId, Validation.Required, Validation.Length(3, 50)),
+		Validation.Field(&controldataFWModel.FilePath, Validation.Required, Validation.Length(3, 50)),
+		Validation.Field(&controldataFWModel.SheetName, Validation.Required, Validation.Length(3, 50)),
+		Validation.Field(&controldataFWModel.CreatedBy, Validation.Required, Validation.Length(3, 50)),
+	)
+}
+
+func (r *Rules) ValidateUpdate(model interface{}) error {
+
+	controldataFWModel, err := controldata.InterfaceToModelReq(model)
+	if err != nil {
+		return err
+	}
+	return Validation.ValidateStruct(controldataFWModel,
+		Validation.Field(&controldataFWModel.ControlDataId, Validation.Required, Validation.Length(3, 50)),
+		Validation.Field(&controldataFWModel.FilePath, Validation.Required, Validation.Length(3, 50)),
+		Validation.Field(&controldataFWModel.SheetName, Validation.Required, Validation.Length(3, 50)),
+		Validation.Field(&controldataFWModel.CreatedBy, Validation.Required, Validation.Length(3, 50)),
+	)
+}
+
+func (r *Rules) ConvertIoReaderToStruct(data io.Reader, model interface{}) (interface{}, error) {
+	if data == nil {
+		return nil, errors.New("body is invalid")
+	}
+	return model, json.NewDecoder(data).Decode(model)
+}
